@@ -28,7 +28,7 @@ Projeyi kendi yerel ortamınızda çalıştırmak için aşağıdaki adımları 
 
 ### 1. Depoyu Klonlayın
 ```bash
-git clone [https://github.com/KULLANICI_ADIN/Akilli-Dokuman-Asistani.git](https://github.com/KULLANICI_ADIN/Akilli-Dokuman-Asistani.git)
+git clone [https://github.com/mehmetkosee/Akilli-Dokuman-Asistani.git](https://github.com/mehmetkosee/Akilli-Dokuman-Asistani.git)
 cd Akilli-Dokuman-Asistani
 ```
 
