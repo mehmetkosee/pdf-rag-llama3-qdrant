@@ -1,0 +1,7 @@
+streamlit
+sentence-transformers
+qdrant-client
+groq
+PyPDF2
+sqlalchemy
+psycopg2-binary
