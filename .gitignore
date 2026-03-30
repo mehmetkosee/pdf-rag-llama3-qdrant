@@ -1,0 +1,15 @@
+# API anahtarları 
+.env
+
+# Python Sanal Ortamı
+venv/
+env/
+
+# Python Ön Bellek Dosyaları
+__pycache__/
+*.pyc
+
+# IDE ve İşletim Sistemi Dosyaları
+.vscode/
+.DS_Store
+Thumbs.db

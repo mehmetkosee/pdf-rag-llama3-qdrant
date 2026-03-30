@@ -6,6 +6,11 @@ from groq import Groq
 from veritabani import SessionLocal, SohbetGecmisi
 import PyPDF2
 import uuid
+import os
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="Akıllı Doküman Analiz Asistanı", page_icon="📄")
@@ -17,7 +22,11 @@ st.markdown("Yüklediğiniz PDF dosyalarını okur, analiz eder ve doküman içi
 def sistem_yukle():
     embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     qdrant_client = QdrantClient(url="http://localhost:6333")
-    llm_client = Groq(api_key="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")
+    
+    # API anahtarını artık .env dosyasından çekiyoruz
+    api_anahtari = os.getenv("GROQ_API_KEY")
+    llm_client = Groq(api_key=api_anahtari)
+    
     return embedding_model, qdrant_client, llm_client
 
 embedding_model, qdrant_client, llm_client = sistem_yukle()
@@ -119,7 +128,7 @@ if kullanici_sorusu:
             Bağlam (Doküman İçeriği):
             {baglam_metni}
 
-            Sohbet Geçmişi:
+            Sohbet Geçmişi:   
             {gecmis_metni if gecmis_metni else "İlk konuşma."}
             """
 
