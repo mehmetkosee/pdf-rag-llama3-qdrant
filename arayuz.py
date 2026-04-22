@@ -9,21 +9,44 @@ import uuid
 import os
 from dotenv import load_dotenv
 
+load_dotenv(dotenv_path=".env")
 
-load_dotenv()
+# --- CHUNKING ---
+def chunking(metin, chunk_size=300, overlap=50):
+    kelimeler = metin.split()
+    parcalar = []
+    
+    for i in range(0, len(kelimeler), chunk_size - overlap):
+        chunk = " ".join(kelimeler[i:i+chunk_size])
+        if len(chunk) > 50:
+            parcalar.append(chunk)
+    
+    return parcalar
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="Akıllı Doküman Analiz Asistanı", page_icon="📄")
-st.title("📄 Akıllı Doküman Analiz Asistanı")
+st.title("📄 Yapay Zeka Destekli Doküman Analiz Asistanı")
 st.markdown("Yüklediğiniz PDF dosyalarını okur, analiz eder ve doküman içindeki spesifik sorularınızı yanıtlar.")
 
 # --- 2. SİSTEM YÜKLEMESİ ---
 @st.cache_resource
 def sistem_yukle():
+    print("API KEY:", os.getenv("GROQ_API_KEY"))
     embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     qdrant_client = QdrantClient(url="http://localhost:6333")
     
-    # API anahtarını artık .env dosyasından çekiyoruz
+    koleksiyon_adi = "test_koleksiyonu"
+
+    # ✅ COLLECTION KONTROL (FIXED)
+    if koleksiyon_adi not in [c.name for c in qdrant_client.get_collections().collections]:
+        qdrant_client.create_collection(
+            collection_name=koleksiyon_adi,
+            vectors_config=models.VectorParams(
+                size=384,
+                distance=models.Distance.COSINE
+            )
+        )
+
     api_anahtari = os.getenv("GROQ_API_KEY")
     llm_client = Groq(api_key=api_anahtari)
     
@@ -33,55 +56,70 @@ embedding_model, qdrant_client, llm_client = sistem_yukle()
 koleksiyon_adi = "test_koleksiyonu"
 aktif_kullanici = "kullanici_1"
 
-# Veritabanı bağlantısını başlat
+# --- DB ---
 db = SessionLocal()
 
-# --- 3. YAN MENÜ (SİDEBAR) VE DOSYA YÜKLEME ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.header("📂 Doküman Yükle")
     st.markdown("Analiz edilmesini istediğiniz PDF dosyasını yükleyin.")
     
     yuklenen_dosya = st.file_uploader("Bir PDF dosyası yükleyin", type="pdf")
     
-    # PDF İşleme Butonu
     if st.button("Dokümanı Analiz Et") and yuklenen_dosya is not None:
-        with st.spinner("PDF okunuyor ve uzaysal vektörlere dönüştürülüyor..."):
+        with st.spinner("PDF işleniyor..."):
             
             pdf_okuyucu = PyPDF2.PdfReader(yuklenen_dosya)
             tum_metin = ""
+            
             for sayfa in pdf_okuyucu.pages:
                 metin = sayfa.extract_text()
                 if metin:
                     tum_metin += metin + "\n"
             
-            chunk_boyutu = 400
-            parcalar = [tum_metin[i:i+chunk_boyutu] for i in range(0, len(tum_metin), chunk_boyutu)]
-            
+            parcalar = chunking(tum_metin)
+
             if parcalar:
-                vektorler = embedding_model.encode(parcalar)
+                vektorler = embedding_model.encode(
+                    parcalar,
+                    show_progress_bar=True,
+                    normalize_embeddings=True
+                )
+
                 noktalar = []
                 for metin_parcasi, vektor in zip(parcalar, vektorler):
                     noktalar.append(
                         models.PointStruct(
                             id=str(uuid.uuid4()),
                             vector=vektor.tolist(),
-                            payload={"orijinal_metin": metin_parcasi, "kaynak": yuklenen_dosya.name}
+                            payload={
+                                "orijinal_metin": metin_parcasi,
+                                "kaynak": yuklenen_dosya.name
+                            }
                         )
                     )
-                qdrant_client.upsert(collection_name=koleksiyon_adi, points=noktalar)
-                st.success(f"{yuklenen_dosya.name} başarıyla belleğe alındı! Artık sorular sorabilirsiniz.")
 
-    # Sohbet Geçmişini Temizleme Butonu
+                qdrant_client.upsert(
+                    collection_name=koleksiyon_adi,
+                    points=noktalar
+                )
+
+                st.success(f"{yuklenen_dosya.name} başarıyla yüklendi!")
+
     st.markdown("---")
+
     if st.button("🗑️ Sohbet Geçmişini Temizle"):
-        db.query(SohbetGecmisi).filter(SohbetGecmisi.kullanici_id == aktif_kullanici).delete()
+        db.query(SohbetGecmisi).filter(
+            SohbetGecmisi.kullanici_id == aktif_kullanici
+        ).delete()
         db.commit()
         st.rerun()
 
-# --- 4. ANA SOHBET EKRANI (RAG MİMARİSİ) ---
-
-# Eski mesajları ekrana bas
-gecmis_kayitlar = db.query(SohbetGecmisi).filter(SohbetGecmisi.kullanici_id == aktif_kullanici).order_by(SohbetGecmisi.id.asc()).all()
+# --- 4. CHAT ---
+gecmis_kayitlar = db.query(SohbetGecmisi)\
+    .filter(SohbetGecmisi.kullanici_id == aktif_kullanici)\
+    .order_by(SohbetGecmisi.id.asc())\
+    .all()
 
 for kayit in gecmis_kayitlar:
     with st.chat_message("user"):
@@ -89,50 +127,67 @@ for kayit in gecmis_kayitlar:
     with st.chat_message("assistant"):
         st.write(kayit.cevap)
 
-# Kullanıcıdan soru al
-kullanici_sorusu = st.chat_input("Doküman hakkında spesifik bir soru sorun (Örn: Yetenekleri nelerdir?)...")
+kullanici_sorusu = st.chat_input("Doküman hakkında soru sorun...")
 
 if kullanici_sorusu:
-    # Soruyu ekrana yazdır
+
     with st.chat_message("user"):
         st.write(kullanici_sorusu)
 
     with st.chat_message("assistant"):
         with st.spinner("Doküman taranıyor..."):
-            
-            # Soruya en yakın 4 metin parçasını Qdrant'tan çek
-            soru_vektoru = embedding_model.encode(kullanici_sorusu).tolist()
+
+            # --- RETRIEVAL ---
+            soru_vektoru = embedding_model.encode(
+                kullanici_sorusu,
+                normalize_embeddings=True
+            ).tolist()
+
             arama_sonuclari = qdrant_client.query_points(
                 collection_name=koleksiyon_adi,
                 query=soru_vektoru,
-                limit=4
+                limit=8
             ).points
-            
-            baglam_metni = ""
-            for sonuc in arama_sonuclari:
-                baglam_metni += f"- {sonuc.payload['orijinal_metin']}\n"
 
-            # Son 3 sohbet geçmişini PostgreSQL'den çek
+            # ✅ GÜVENLİ PAYLOAD
+            baglam_listesi = [
+                sonuc.payload.get("orijinal_metin", "")
+                for sonuc in arama_sonuclari
+                if sonuc.payload
+            ]
+
+            # ✅ BOŞ KONTROL
+            if not baglam_listesi:
+                baglam_metni = "Bağlam bulunamadı."
+            else:
+                baglam_listesi = baglam_listesi[:4]
+                baglam_metni = "\n".join([f"- {m}" for m in baglam_listesi])
+
+            # --- MEMORY ---
             son_kayitlar = gecmis_kayitlar[-3:] if len(gecmis_kayitlar) >= 3 else gecmis_kayitlar
             gecmis_metni = ""
+
             for kayit in son_kayitlar:
                 gecmis_metni += f"Kullanıcı: {kayit.soru}\nAsistan: {kayit.cevap}\n"
 
-            # Modele gönderilecek kesin talimat (Prompt)
+            # --- PROMPT ---
             sistem_istemi = f"""
-            Sen profesyonel bir doküman analiz asistanısın. 
-            Aşağıda, kullanıcının sisteme yüklediği PDF dosyasından çekilen 'Bağlam' metinleri bulunmaktadır.
-            Kullanıcının sorusunu SADECE bu 'Bağlam' metinlerine dayanarak yanıtla.
-            Eğer sorunun cevabı bağlamda yoksa, uydurma ve 'Bu bilgi yüklenen dokümanda bulunmamaktadır' de.
-            
-            Bağlam (Doküman İçeriği):
-            {baglam_metni}
+Sen profesyonel bir doküman analiz asistanısın.
 
-            Sohbet Geçmişi:   
-            {gecmis_metni if gecmis_metni else "İlk konuşma."}
-            """
+KURALLAR:
+- SADECE verilen bağlamı kullan
+- Uydurma, tahmin yapma
+- Cevap yoksa: "Bu bilgi yüklenen dokümanda bulunmamaktadır" de
+- Kısa ve net cevap ver
 
-            # Groq API ile yanıt üret
+Bağlam:
+{baglam_metni}
+
+Sohbet geçmişi:
+{gecmis_metni if gecmis_metni else "İlk konuşma."}
+"""
+
+            # --- LLM ---
             llm_yaniti = llm_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": sistem_istemi},
@@ -141,13 +196,12 @@ if kullanici_sorusu:
                 model="llama-3.1-8b-instant",
                 temperature=0.0
             )
-            
+
             asistan_cevabi = llm_yaniti.choices[0].message.content
-            
-            # Cevabı ekrana yazdır
+
             st.write(asistan_cevabi)
 
-            # Konuşmayı PostgreSQL veritabanına kaydet
+            # --- SAVE ---
             yeni_kayit = SohbetGecmisi(
                 kullanici_id=aktif_kullanici,
                 soru=kullanici_sorusu,
