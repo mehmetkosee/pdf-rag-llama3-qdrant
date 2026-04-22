@@ -2,6 +2,10 @@
 
 Bu proje, yapısal olmayan dokümanları (PDF) analiz ederek kullanıcı sorularına bağlama dayalı (context-aware) yanıtlar üreten, uçtan uca tasarlanmış bir **Retrieval-Augmented Generation (RAG)** asistanıdır. Yapay zeka modelinin halüsinasyon görmesini (bilgi uydurmasını) engellemek amacıyla, yanıtlar sadece vektör veritabanından çekilen doküman parçalarına dayandırılır ve diyalog bütünlüğü ilişkisel bir veritabanı ile korunur.
 
+## 📸 Arayüz Görseli
+
+![Uygulama Demo](/app_demo.png)
+
 ##  Proje Mimarisi ve Teknoloji Yığını (Tech Stack)
 
 Sistem, modern yapay zeka ve arka uç (backend) mühendisliği standartlarına uygun olarak modüler bir yapıda geliştirilmiştir:
